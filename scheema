@@ -1,0 +1,72 @@
+-- WARNING: This schema is for context only and is not meant to be run.
+-- Table order and constraints may not be valid for execution.
+
+CREATE TABLE public.event_finances (
+  id uuid NOT NULL DEFAULT gen_random_uuid(),
+  event_id uuid,
+  service_id uuid,
+  service_name text,
+  estimated_amount numeric DEFAULT 0,
+  estimated_note text,
+  extra_amount numeric DEFAULT 0,
+  extra_note text,
+  total_amount numeric DEFAULT (estimated_amount + extra_amount),
+  CONSTRAINT event_finances_pkey PRIMARY KEY (id),
+  CONSTRAINT event_finances_event_id_fkey FOREIGN KEY (event_id) REFERENCES public.events(id),
+  CONSTRAINT event_finances_service_id_fkey FOREIGN KEY (service_id) REFERENCES public.services(id)
+);
+CREATE TABLE public.event_tasks (
+  id uuid NOT NULL DEFAULT gen_random_uuid(),
+  event_id uuid,
+  task_id uuid,
+  staff_id uuid,
+  status text DEFAULT 'Pending'::text,
+  note text,
+  CONSTRAINT event_tasks_pkey PRIMARY KEY (id),
+  CONSTRAINT event_tasks_event_id_fkey FOREIGN KEY (event_id) REFERENCES public.events(id),
+  CONSTRAINT event_tasks_task_id_fkey FOREIGN KEY (task_id) REFERENCES public.task_templates(id),
+  CONSTRAINT event_tasks_staff_id_fkey FOREIGN KEY (staff_id) REFERENCES public.staff(id)
+);
+CREATE TABLE public.events (
+  id uuid NOT NULL DEFAULT gen_random_uuid(),
+  name text NOT NULL,
+  organizer text,
+  start_date timestamp with time zone,
+  location text,
+  format text CHECK (format = ANY (ARRAY['offline'::text, 'online'::text, 'hybrid'::text])),
+  script_link text,
+  timeline_link text,
+  status text DEFAULT 'Planning'::text CHECK (status = ANY (ARRAY['Planning'::text, 'Running'::text, 'Completed'::text, 'Canceled'::text])),
+  outcome_summary text,
+  created_at timestamp with time zone DEFAULT now(),
+  CONSTRAINT events_pkey PRIMARY KEY (id)
+);
+CREATE TABLE public.profiles (
+  id uuid NOT NULL,
+  email text,
+  full_name text,
+  role text DEFAULT 'staff'::text CHECK (role = ANY (ARRAY['superadmin'::text, 'staff'::text])),
+  created_at timestamp with time zone DEFAULT now(),
+  CONSTRAINT profiles_pkey PRIMARY KEY (id),
+  CONSTRAINT profiles_id_fkey FOREIGN KEY (id) REFERENCES auth.users(id)
+);
+CREATE TABLE public.services (
+  id uuid NOT NULL DEFAULT gen_random_uuid(),
+  service_name text NOT NULL,
+  base_price numeric DEFAULT 0,
+  CONSTRAINT services_pkey PRIMARY KEY (id)
+);
+CREATE TABLE public.staff (
+  id uuid NOT NULL DEFAULT gen_random_uuid(),
+  full_name text NOT NULL,
+  staff_type text,
+  phone text,
+  department text,
+  CONSTRAINT staff_pkey PRIMARY KEY (id)
+);
+CREATE TABLE public.task_templates (
+  id uuid NOT NULL DEFAULT gen_random_uuid(),
+  task_name text NOT NULL,
+  description text,
+  CONSTRAINT task_templates_pkey PRIMARY KEY (id)
+);

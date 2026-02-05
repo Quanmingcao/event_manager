@@ -1,0 +1,951 @@
+# Hướng dẫn Visual Studio 2022: Xây dựng Backend ASP.NET Core
+
+> [!IMPORTANT]
+> Hướng dẫn này được thiết kế cho **Visual Studio 2022** (màu tím), với các bước thực hiện trực quan qua giao diện. Backend sẽ kết nối với Supabase PostgreSQL database hiện có của bạn.
+
+---
+
+## 📋 Tổng quan cấu trúc dự án
+
+```
+📁 EventManager (Solution)
+├── 📁 EventManager.API                    ← Web API Project (Controllers, Program.cs)
+│   ├── 📁 Controllers                     ← API Endpoints
+│   ├── 📁 Hubs                           ← SignalR Hubs
+│   ├── 📄 appsettings.json               ← Cấu hình (Connection String, JWT)
+│   └── 📄 Program.cs                     ← Entry point, DI configuration
+│
+├── 📁 EventManager.Application            ← Business Logic Layer
+│   ├── 📁 DTOs                           ← Data Transfer Objects
+│   │   └── 📁 Auth                       ← Login/Register DTOs
+│   └── 📁 Services                       ← Business Services
+│
+├── 📁 EventManager.Domain                 ← Domain Entities
+│   └── 📁 Entities                       ← Database Models (Event, Staff, etc.)
+│
+└── 📁 EventManager.Infrastructure         ← Data Access Layer
+    ├── 📁 Data                           ← DbContext
+    └── 📁 Services                       ← JWT Service, File Upload
+```
+
+---
+
+## PHẦN 1: TẠO SOLUTION VÀ CẤU TRÚC DỰ ÁN
+
+### Bước 1.1: Tạo Project đầu tiên
+
+1. Mở **Visual Studio 2022**
+2. Click **"Create a new project"**
+3. Tìm kiếm: `ASP.NET Core Web API`
+4. Chọn template **ASP.NET Core Web API** (C#)
+5. Click **Next**
+
+**Cấu hình:**
+```
+Project name: EventManager.API
+Location: C:\Users\User\Desktop\EventManagerBackend
+Solution name: EventManager
+☑ Place solution and project in the same directory
+```
+
+6. Click **Next**
+
+**Framework settings:**
+```
+Framework: .NET 8.0 (Long Term Support)
+Authentication type: None
+☑ Configure for HTTPS
+☑ Enable OpenAPI support
+☑ Use controllers
+☐ Enable Docker
+```
+
+7. Click **Create**
+
+### Bước 1.2: Thêm Class Library Projects
+
+**Tạo EventManager.Domain:**
+1. Right-click Solution `EventManager` trong **Solution Explorer**
+2. **Add → New Project**
+3. Tìm: `Class Library`
+4. Chọn **Class Library** (C#)
+5. Tên: `EventManager.Domain`
+6. Framework: **.NET 8.0**
+7. Click **Create**
+8. **Xóa file `Class1.cs`** (right-click → Delete)
+
+**Tạo EventManager.Application:**
+- Lặp lại các bước trên với tên `EventManager.Application`
+- Xóa `Class1.cs`
+
+**Tạo EventManager.Infrastructure:**
+- Lặp lại các bước trên với tên `EventManager.Infrastructure`
+- Xóa `Class1.cs`
+
+### Bước 1.3: Thiết lập Project References
+
+**EventManager.API cần reference:**
+1. Right-click **EventManager.API** → **Add → Project Reference**
+2. Check ☑ **EventManager.Application**
+3. Check ☑ **EventManager.Infrastructure**
+4. Click **OK**
+
+**EventManager.Application cần reference:**
+1. Right-click **EventManager.Application** → **Add → Project Reference**
+2. Check ☑ **EventManager.Domain**
+3. Click **OK**
+
+**EventManager.Infrastructure cần reference:**
+1. Right-click **EventManager.Infrastructure** → **Add → Project Reference**
+2. Check ☑ **EventManager.Application**
+3. Click **OK**
+
+---
+
+## PHẦN 2: CÀI ĐẶT NUGET PACKAGES
+
+### Bước 2.1: Packages cho EventManager.API
+
+1. Right-click **EventManager.API** → **Manage NuGet Packages**
+2. Click tab **Browse**
+3. Tìm và cài đặt:
+
+| Package | Version |
+|---------|---------|
+| `Microsoft.EntityFrameworkCore.Design` | 8.0.x |
+| `Microsoft.AspNetCore.Authentication.JwtBearer` | 8.0.x |
+| `Swashbuckle.AspNetCore` | 6.5.x (đã có sẵn) |
+
+### Bước 2.2: Packages cho EventManager.Infrastructure
+
+1. Right-click **EventManager.Infrastructure** → **Manage NuGet Packages**
+2. Cài đặt:
+
+| Package | Version |
+|---------|---------|
+| `Npgsql.EntityFrameworkCore.PostgreSQL` | 8.0.x |
+| `Microsoft.EntityFrameworkCore` | 8.0.x |
+| `Microsoft.EntityFrameworkCore.Tools` | 8.0.x |
+
+### Bước 2.3: Packages cho EventManager.Application
+
+1. Right-click **EventManager.Application** → **Manage NuGet Packages**
+2. Cài đặt:
+
+| Package | Version |
+|---------|---------|
+| `FluentValidation` | 11.x |
+| `AutoMapper` | 12.x |
+
+> [!TIP]
+> Sau khi cài xong, build solution: **Build → Build Solution** (Ctrl+Shift+B)
+
+---
+
+## PHẦN 3: TẠO DOMAIN ENTITIES
+
+### Bước 3.1: Tạo thư mục Entities
+
+1. Right-click **EventManager.Domain**
+2. **Add → New Folder**
+3. Tên: `Entities`
+
+### Bước 3.2: Tạo 7 Entity Classes
+
+#### 📄 Event.cs
+
+1. Right-click folder **Entities** → **Add → Class**
+2. Tên: `Event.cs`
+3. Paste code:
+
+```csharp
+using System;
+using System.Collections.Generic;
+
+namespace EventManager.Domain.Entities
+{
+    public class Event
+    {
+        public Guid Id { get; set; }
+        public string Name { get; set; } = string.Empty;
+        public string? Organizer { get; set; }
+        public DateTime? StartDate { get; set; }
+        public string? Location { get; set; }
+        public string? Format { get; set; }
+        public string? ScriptLink { get; set; }
+        public string? TimelineLink { get; set; }
+        public string Status { get; set; } = "Planning";
+        public string? OutcomeSummary { get; set; }
+        public DateTime CreatedAt { get; set; } = DateTime.UtcNow;
+
+        public ICollection<EventTask> EventTasks { get; set; } = new List<EventTask>();
+        public ICollection<EventFinance> EventFinances { get; set; } = new List<EventFinance>();
+    }
+}
+```
+
+#### 📄 Staff.cs
+
+```csharp
+using System;
+using System.Collections.Generic;
+
+namespace EventManager.Domain.Entities
+{
+    public class Staff
+    {
+        public Guid Id { get; set; }
+        public string FullName { get; set; } = string.Empty;
+        public string? StaffType { get; set; }
+        public string? Phone { get; set; }
+        public string? Department { get; set; }
+
+        public ICollection<EventTask> EventTasks { get; set; } = new List<EventTask>();
+    }
+}
+```
+
+#### 📄 TaskTemplate.cs
+
+```csharp
+using System;
+using System.Collections.Generic;
+
+namespace EventManager.Domain.Entities
+{
+    public class TaskTemplate
+    {
+        public Guid Id { get; set; }
+        public string TaskName { get; set; } = string.Empty;
+        public string? Description { get; set; }
+
+        public ICollection<EventTask> EventTasks { get; set; } = new List<EventTask>();
+    }
+}
+```
+
+#### 📄 EventTask.cs
+
+```csharp
+using System;
+
+namespace EventManager.Domain.Entities
+{
+    public class EventTask
+    {
+        public Guid Id { get; set; }
+        public Guid EventId { get; set; }
+        public Guid? TaskId { get; set; }
+        public Guid? StaffId { get; set; }
+        public string Status { get; set; } = "Pending";
+        public string? Note { get; set; }
+
+        public Event Event { get; set; } = null!;
+        public TaskTemplate? Task { get; set; }
+        public Staff? Staff { get; set; }
+    }
+}
+```
+
+#### 📄 Service.cs
+
+```csharp
+using System;
+using System.Collections.Generic;
+
+namespace EventManager.Domain.Entities
+{
+    public class Service
+    {
+        public Guid Id { get; set; }
+        public string ServiceName { get; set; } = string.Empty;
+        public decimal BasePrice { get; set; } = 0;
+
+        public ICollection<EventFinance> EventFinances { get; set; } = new List<EventFinance>();
+    }
+}
+```
+
+#### 📄 EventFinance.cs
+
+```csharp
+using System;
+
+namespace EventManager.Domain.Entities
+{
+    public class EventFinance
+    {
+        public Guid Id { get; set; }
+        public Guid EventId { get; set; }
+        public Guid? ServiceId { get; set; }
+        public decimal EstimatedAmount { get; set; } = 0;
+        public string? EstimatedNote { get; set; }
+        public decimal ExtraAmount { get; set; } = 0;
+        public string? ExtraNote { get; set; }
+        public decimal TotalAmount => EstimatedAmount + ExtraAmount;
+
+        public Event Event { get; set; } = null!;
+        public Service? Service { get; set; }
+    }
+}
+```
+
+#### 📄 Profile.cs
+
+```csharp
+using System;
+
+namespace EventManager.Domain.Entities
+{
+    public class Profile
+    {
+        public Guid Id { get; set; }
+        public string? Email { get; set; }
+        public string? FullName { get; set; }
+        public string Role { get; set; } = "staff";
+        public DateTime CreatedAt { get; set; } = DateTime.UtcNow;
+    }
+}
+```
+
+**Kết quả:** Folder Entities sẽ có 7 files
+
+---
+
+## PHẦN 4: CẤU HÌNH DATABASE CONTEXT
+
+### Bước 4.1: Tạo thư mục Data
+
+1. Right-click **EventManager.Infrastructure**
+2. **Add → New Folder**
+3. Tên: `Data`
+
+### Bước 4.2: Tạo ApplicationDbContext.cs
+
+1. Right-click folder **Data** → **Add → Class**
+2. Tên: `ApplicationDbContext.cs`
+3. Paste code (FILE DÀI):
+
+```csharp
+using Microsoft.EntityFrameworkCore;
+using EventManager.Domain.Entities;
+
+namespace EventManager.Infrastructure.Data
+{
+    public class ApplicationDbContext : DbContext
+    {
+        public ApplicationDbContext(DbContextOptions<ApplicationDbContext> options)
+            : base(options)
+        {
+        }
+
+        public DbSet<Event> Events { get; set; }
+        public DbSet<Staff> Staff { get; set; }
+        public DbSet<TaskTemplate> TaskTemplates { get; set; }
+        public DbSet<EventTask> EventTasks { get; set; }
+        public DbSet<Service> Services { get; set; }
+        public DbSet<EventFinance> EventFinances { get; set; }
+        public DbSet<Profile> Profiles { get; set; }
+
+        protected override void OnModelCreating(ModelBuilder modelBuilder)
+        {
+            base.OnModelCreating(ModelBuilder);
+
+            // Events
+            modelBuilder.Entity<Event>(entity =>
+            {
+                entity.ToTable("events");
+                entity.HasKey(e => e.Id);
+                entity.Property(e => e.Id).HasColumnName("id");
+                entity.Property(e => e.Name).HasColumnName("name").IsRequired();
+                entity.Property(e => e.Organizer).HasColumnName("organizer");
+                entity.Property(e => e.StartDate).HasColumnName("start_date");
+                entity.Property(e => e.Location).HasColumnName("location");
+                entity.Property(e => e.Format).HasColumnName("format");
+                entity.Property(e => e.ScriptLink).HasColumnName("script_link");
+                entity.Property(e => e.TimelineLink).HasColumnName("timeline_link");
+                entity.Property(e => e.Status).HasColumnName("status").HasDefaultValue("Planning");
+                entity.Property(e => e.OutcomeSummary).HasColumnName("outcome_summary");
+                entity.Property(e => e.CreatedAt).HasColumnName("created_at").HasDefaultValueSql("now()");
+            });
+
+            // Staff
+            modelBuilder.Entity<Staff>(entity =>
+            {
+                entity.ToTable("staff");
+                entity.HasKey(e => e.Id);
+                entity.Property(e => e.Id).HasColumnName("id");
+                entity.Property(e => e.FullName).HasColumnName("full_name").IsRequired();
+                entity.Property(e => e.StaffType).HasColumnName("staff_type");
+                entity.Property(e => e.Phone).HasColumnName("phone");
+                entity.Property(e => e.Department).HasColumnName("department");
+            });
+
+            // TaskTemplates
+            modelBuilder.Entity<TaskTemplate>(entity =>
+            {
+                entity.ToTable("task_templates");
+                entity.HasKey(e => e.Id);
+                entity.Property(e => e.Id).HasColumnName("id");
+                entity.Property(e => e.TaskName).HasColumnName("task_name").IsRequired();
+                entity.Property(e => e.Description).HasColumnName("description");
+            });
+
+            // EventTasks
+            modelBuilder.Entity<EventTask>(entity =>
+            {
+                entity.ToTable("event_tasks");
+                entity.HasKey(e => e.Id);
+                entity.Property(e => e.Id).HasColumnName("id");
+                entity.Property(e => e.EventId).HasColumnName("event_id");
+                entity.Property(e => e.TaskId).HasColumnName("task_id");
+                entity.Property(e => e.StaffId).HasColumnName("staff_id");
+                entity.Property(e => e.Status).HasColumnName("status").HasDefaultValue("Pending");
+                entity.Property(e => e.Note).HasColumnName("note");
+
+                entity.HasOne(e => e.Event)
+                    .WithMany(e => e.EventTasks)
+                    .HasForeignKey(e => e.EventId)
+                    .OnDelete(DeleteBehavior.Cascade);
+
+                entity.HasOne(e => e.Task)
+                    .WithMany(t => t.EventTasks)
+                    .HasForeignKey(e => e.TaskId)
+                    .OnDelete(DeleteBehavior.SetNull);
+
+                entity.HasOne(e => e.Staff)
+                    .WithMany(s => s.EventTasks)
+                    .HasForeignKey(e => e.StaffId)
+                    .OnDelete(DeleteBehavior.SetNull);
+            });
+
+            // Services
+            modelBuilder.Entity<Service>(entity =>
+            {
+                entity.ToTable("services");
+                entity.HasKey(e => e.Id);
+                entity.Property(e => e.Id).HasColumnName("id");
+                entity.Property(e => e.ServiceName).HasColumnName("service_name").IsRequired();
+                entity.Property(e => e.BasePrice).HasColumnName("base_price").HasDefaultValue(0);
+            });
+
+            // EventFinances
+            modelBuilder.Entity<EventFinance>(entity =>
+            {
+                entity.ToTable("event_finances");
+                entity.HasKey(e => e.Id);
+                entity.Property(e => e.Id).HasColumnName("id");
+                entity.Property(e => e.EventId).HasColumnName("event_id");
+                entity.Property(e => e.ServiceId).HasColumnName("service_id");
+                entity.Property(e => e.EstimatedAmount).HasColumnName("estimated_amount").HasDefaultValue(0);
+                entity.Property(e => e.EstimatedNote).HasColumnName("estimated_note");
+                entity.Property(e => e.ExtraAmount).HasColumnName("extra_amount").HasDefaultValue(0);
+                entity.Property(e => e.ExtraNote).HasColumnName("extra_note");
+                entity.Ignore(e => e.TotalAmount);
+
+                entity.HasOne(e => e.Event)
+                    .WithMany(e => e.EventFinances)
+                    .HasForeignKey(e => e.EventId)
+                    .OnDelete(DeleteBehavior.Cascade);
+
+                entity.HasOne(e => e.Service)
+                    .WithMany(s => s.EventFinances)
+                    .HasForeignKey(e => e.ServiceId)
+                    .OnDelete(DeleteBehavior.SetNull);
+            });
+
+            // Profiles
+            modelBuilder.Entity<Profile>(entity =>
+            {
+                entity.ToTable("profiles");
+                entity.HasKey(e => e.Id);
+                entity.Property(e => e.Id).HasColumnName("id");
+                entity.Property(e => e.Email).HasColumnName("email");
+                entity.Property(e => e.FullName).HasColumnName("full_name");
+                entity.Property(e => e.Role).HasColumnName("role").HasDefaultValue("staff");
+                entity.Property(e => e.CreatedAt).HasColumnName("created_at").HasDefaultValueSql("now()");
+            });
+        }
+    }
+}
+```
+
+---
+
+## PHẦN 5: CẤU HÌNH CONNECTION STRING
+
+### Bước 5.1: Lấy Connection String từ Supabase
+
+1. Vào **Supabase Dashboard**
+2. Chọn project của bạn
+3. **Settings → Database**
+4. Scroll xuống **Connection string**
+5. Chọn tab **URI** hoặc **Connection pooling**
+6. Copy connection string
+
+Ví dụ:
+```
+postgresql://postgres:[YOUR-PASSWORD]@db.xxxxx.supabase.co:5432/postgres
+```
+
+### Bước 5.2: Cấu hình appsettings.json
+
+1. Trong **EventManager.API**, mở file `appsettings.json`
+2. Thay thế toàn bộ nội dung bằng:
+
+```json
+{
+  "ConnectionStrings": {
+    "DefaultConnection": "Host=db.xxxxx.supabase.co;Database=postgres;Username=postgres;Password=YOUR_PASSWORD;Port=5432"
+  },
+  "Jwt": {
+    "Key": "YOUR_SECRET_KEY_MINIMUM_32_CHARACTERS_LONG_FOR_SECURITY",
+    "Issuer": "EventManagerAPI",
+    "Audience": "EventManagerClient",
+    "ExpiryInMinutes": 60
+  },
+  "Logging": {
+    "LogLevel": {
+      "Default": "Information",
+      "Microsoft.AspNetCore": "Warning"
+    }
+  },
+  "AllowedHosts": "*"
+}
+```
+
+> [!WARNING]
+> **Thay thế:**
+> - `db.xxxxx.supabase.co` → Host từ Supabase
+> - `YOUR_PASSWORD` → Password database của bạn
+> - `YOUR_SECRET_KEY...` → Một chuỗi bí mật dài ít nhất 32 ký tự
+
+---
+
+## PHẦN 6: TẠO JWT SERVICE
+
+### Bước 6.1: Tạo thư mục Services trong Infrastructure
+
+1. Right-click **EventManager.Infrastructure**
+2. **Add → New Folder**
+3. Tên: `Services`
+
+### Bước 6.2: Tạo JwtService.cs
+
+1. Right-click folder **Services** → **Add → Class**
+2. Tên: `JwtService.cs`
+3. Paste code:
+
+```csharp
+using System;
+using System.IdentityModel.Tokens.Jwt;
+using System.Security.Claims;
+using System.Text;
+using Microsoft.Extensions.Configuration;
+using Microsoft.IdentityModel.Tokens;
+
+namespace EventManager.Infrastructure.Services
+{
+    public interface IJwtService
+    {
+        string GenerateToken(string userId, string email, string role);
+    }
+
+    public class JwtService : IJwtService
+    {
+        private readonly IConfiguration _configuration;
+
+        public JwtService(IConfiguration configuration)
+        {
+            _configuration = configuration;
+        }
+
+        public string GenerateToken(string userId, string email, string role)
+        {
+            var key = new SymmetricSecurityKey(Encoding.UTF8.GetBytes(_configuration["Jwt:Key"]!));
+            var credentials = new SigningCredentials(key, SecurityAlgorithms.HmacSha256);
+
+            var claims = new[]
+            {
+                new Claim(JwtRegisteredClaimNames.Sub, userId),
+                new Claim(JwtRegisteredClaimNames.Email, email),
+                new Claim(ClaimTypes.Role, role),
+                new Claim(JwtRegisteredClaimNames.Jti, Guid.NewGuid().ToString())
+            };
+
+            var token = new JwtSecurityToken(
+                issuer: _configuration["Jwt:Issuer"],
+                audience: _configuration["Jwt:Audience"],
+                claims: claims,
+                expires: DateTime.UtcNow.AddMinutes(Convert.ToDouble(_configuration["Jwt:ExpiryInMinutes"])),
+                signingCredentials: credentials
+            );
+
+            return new JwtSecurityTokenHandler().WriteToken(token);
+        }
+    }
+}
+```
+
+---
+
+## PHẦN 7: TẠO CONTROLLERS
+
+### Bước 7.1: Tạo thư mục Controllers (nếu chưa có)
+
+1. Right-click **EventManager.API**
+2. **Add → New Folder**
+3. Tên: `Controllers`
+
+### Bước 7.2: Tạo EventsController.cs
+
+1. Right-click folder **Controllers** → **Add → Controller**
+2. Chọn **API Controller - Empty**
+3. Tên: `EventsController`
+4. Paste code:
+
+```csharp
+using Microsoft.AspNetCore.Authorization;
+using Microsoft.AspNetCore.Mvc;
+using Microsoft.EntityFrameworkCore;
+using EventManager.Domain.Entities;
+using EventManager.Infrastructure.Data;
+
+namespace EventManager.API.Controllers
+{
+    [ApiController]
+    [Route("api/[controller]")]
+    [Authorize]
+    public class EventsController : ControllerBase
+    {
+        private readonly ApplicationDbContext _context;
+
+        public EventsController(ApplicationDbContext context)
+        {
+            _context = context;
+        }
+
+        [HttpGet]
+        public async Task<ActionResult<IEnumerable<Event>>> GetEvents()
+        {
+            return await _context.Events
+                .Include(e => e.EventTasks)
+                .Include(e => e.EventFinances)
+                .ToListAsync();
+        }
+
+        [HttpGet("{id}")]
+        public async Task<ActionResult<Event>> GetEvent(Guid id)
+        {
+            var eventItem = await _context.Events
+                .Include(e => e.EventTasks)
+                    .ThenInclude(t => t.Staff)
+                .Include(e => e.EventTasks)
+                    .ThenInclude(t => t.Task)
+                .Include(e => e.EventFinances)
+                    .ThenInclude(f => f.Service)
+                .FirstOrDefaultAsync(e => e.Id == id);
+
+            if (eventItem == null)
+                return NotFound();
+
+            return eventItem;
+        }
+
+        [HttpPost]
+        public async Task<ActionResult<Event>> CreateEvent(Event eventItem)
+        {
+            eventItem.Id = Guid.NewGuid();
+            eventItem.CreatedAt = DateTime.UtcNow;
+
+            _context.Events.Add(eventItem);
+            await _context.SaveChangesAsync();
+
+            return CreatedAtAction(nameof(GetEvent), new { id = eventItem.Id }, eventItem);
+        }
+
+        [HttpPut("{id}")]
+        public async Task<IActionResult> UpdateEvent(Guid id, Event eventItem)
+        {
+            if (id != eventItem.Id)
+                return BadRequest();
+
+            _context.Entry(eventItem).State = EntityState.Modified;
+            await _context.SaveChangesAsync();
+
+            return NoContent();
+        }
+
+        [HttpDelete("{id}")]
+        [Authorize(Roles = "superadmin")]
+        public async Task<IActionResult> DeleteEvent(Guid id)
+        {
+            var eventItem = await _context.Events.FindAsync(id);
+            if (eventItem == null)
+                return NotFound();
+
+            _context.Events.Remove(eventItem);
+            await _context.SaveChangesAsync();
+
+            return NoContent();
+        }
+    }
+}
+```
+
+### Bước 7.3: Tạo StaffController.cs
+
+Tương tự, tạo file `StaffController.cs`:
+
+```csharp
+using Microsoft.AspNetCore.Authorization;
+using Microsoft.AspNetCore.Mvc;
+using Microsoft.EntityFrameworkCore;
+using EventManager.Domain.Entities;
+using EventManager.Infrastructure.Data;
+
+namespace EventManager.API.Controllers
+{
+    [ApiController]
+    [Route("api/[controller]")]
+    [Authorize]
+    public class StaffController : ControllerBase
+    {
+        private readonly ApplicationDbContext _context;
+
+        public StaffController(ApplicationDbContext context)
+        {
+            _context = context;
+        }
+
+        [HttpGet]
+        public async Task<ActionResult<IEnumerable<Staff>>> GetStaff()
+        {
+            return await _context.Staff.ToListAsync();
+        }
+
+        [HttpGet("{id}")]
+        public async Task<ActionResult<Staff>> GetStaffMember(Guid id)
+        {
+            var staff = await _context.Staff.FindAsync(id);
+            if (staff == null)
+                return NotFound();
+
+            return staff;
+        }
+
+        [HttpPost]
+        [Authorize(Roles = "superadmin")]
+        public async Task<ActionResult<Staff>> CreateStaff(Staff staff)
+        {
+            staff.Id = Guid.NewGuid();
+            _context.Staff.Add(staff);
+            await _context.SaveChangesAsync();
+
+            return CreatedAtAction(nameof(GetStaffMember), new { id = staff.Id }, staff);
+        }
+
+        [HttpPut("{id}")]
+        [Authorize(Roles = "superadmin")]
+        public async Task<IActionResult> UpdateStaff(Guid id, Staff staff)
+        {
+            if (id != staff.Id)
+                return BadRequest();
+
+            _context.Entry(staff).State = EntityState.Modified;
+            await _context.SaveChangesAsync();
+
+            return NoContent();
+        }
+
+        [HttpDelete("{id}")]
+        [Authorize(Roles = "superadmin")]
+        public async Task<IActionResult> DeleteStaff(Guid id)
+        {
+            var staff = await _context.Staff.FindAsync(id);
+            if (staff == null)
+                return NotFound();
+
+            _context.Staff.Remove(staff);
+            await _context.SaveChangesAsync();
+
+            return NoContent();
+        }
+    }
+}
+```
+
+> [!NOTE]
+> Bạn có thể tạo thêm các controllers tương tự cho: TaskTemplates, EventTasks, Services, EventFinances
+
+---
+
+## PHẦN 8: CẤU HÌNH PROGRAM.CS
+
+### Bước 8.1: Mở Program.cs
+
+1. Trong **EventManager.API**, double-click `Program.cs`
+2. Thay thế toàn bộ nội dung bằng:
+
+```csharp
+using Microsoft.EntityFrameworkCore;
+using Microsoft.AspNetCore.Authentication.JwtBearer;
+using Microsoft.IdentityModel.Tokens;
+using System.Text;
+using EventManager.Infrastructure.Data;
+using EventManager.Infrastructure.Services;
+
+var builder = WebApplication.CreateBuilder(args);
+
+// Add services to the container
+builder.Services.AddControllers();
+builder.Services.AddEndpointsApiExplorer();
+builder.Services.AddSwaggerGen();
+
+// Database
+builder.Services.AddDbContext<ApplicationDbContext>(options =>
+    options.UseNpgsql(builder.Configuration.GetConnectionString("DefaultConnection")));
+
+// JWT Service
+builder.Services.AddScoped<IJwtService, JwtService>();
+
+// Authentication
+builder.Services.AddAuthentication(options =>
+{
+    options.DefaultAuthenticateScheme = JwtBearerDefaults.AuthenticationScheme;
+    options.DefaultChallengeScheme = JwtBearerDefaults.AuthenticationScheme;
+})
+.AddJwtBearer(options =>
+{
+    options.TokenValidationParameters = new TokenValidationParameters
+    {
+        ValidateIssuer = true,
+        ValidateAudience = true,
+        ValidateLifetime = true,
+        ValidateIssuerSigningKey = true,
+        ValidIssuer = builder.Configuration["Jwt:Issuer"],
+        ValidAudience = builder.Configuration["Jwt:Audience"],
+        IssuerSigningKey = new SymmetricSecurityKey(
+            Encoding.UTF8.GetBytes(builder.Configuration["Jwt:Key"]!))
+    };
+});
+
+builder.Services.AddAuthorization();
+
+// CORS
+builder.Services.AddCors(options =>
+{
+    options.AddPolicy("AllowAll", policy =>
+    {
+        policy.AllowAnyOrigin()
+              .AllowAnyMethod()
+              .AllowAnyHeader();
+    });
+});
+
+var app = builder.Build();
+
+// Configure the HTTP request pipeline
+if (app.Environment.IsDevelopment())
+{
+    app.UseSwagger();
+    app.UseSwaggerUI();
+}
+
+app.UseHttpsRedirection();
+app.UseCors("AllowAll");
+app.UseAuthentication();
+app.UseAuthorization();
+app.MapControllers();
+
+app.Run();
+```
+
+---
+
+## PHẦN 9: CHẠY VÀ TEST
+
+### Bước 9.1: Build Solution
+
+1. **Build → Build Solution** (Ctrl+Shift+B)
+2. Kiểm tra **Output** window, đảm bảo không có lỗi
+
+### Bước 9.2: Chạy ứng dụng
+
+1. Click nút **▶ Play** (hoặc F5)
+2. Trình duyệt sẽ mở tự động với Swagger UI
+3. URL: `https://localhost:7xxx/swagger`
+
+### Bước 9.3: Test API với Swagger
+
+1. Mở rộng endpoint **GET /api/Events**
+2. Click **Try it out**
+3. Click **Execute**
+
+> [!WARNING]
+> Bạn sẽ nhận lỗi **401 Unauthorized** vì chưa có token. Đây là điều bình thường!
+
+---
+
+## PHẦN 10: BƯỚC TIẾP THEO
+
+### ✅ Đã hoàn thành:
+- Tạo solution với Clean Architecture
+- Cấu hình Entity Framework Core với PostgreSQL
+- Tạo 7 Entity Models
+- Thiết lập JWT Authentication
+- Tạo 2 Controllers cơ bản (Events, Staff)
+
+### 🔄 Cần làm tiếp:
+1. **Tạo AuthController** để login/register
+2. **Tạo các Controllers còn lại** (TaskTemplates, EventTasks, Services, EventFinances)
+3. **Tạo Business Services** (FinanceService, FileUploadService)
+4. **Thêm SignalR Hub** cho real-time updates
+5. **Test với frontend React**
+
+---
+
+## 📚 Tóm tắt cấu trúc files
+
+```
+EventManager.Domain/
+└── Entities/
+    ├── Event.cs
+    ├── Staff.cs
+    ├── TaskTemplate.cs
+    ├── EventTask.cs
+    ├── Service.cs
+    ├── EventFinance.cs
+    └── Profile.cs
+
+EventManager.Infrastructure/
+├── Data/
+│   └── ApplicationDbContext.cs
+└── Services/
+    └── JwtService.cs
+
+EventManager.API/
+├── Controllers/
+│   ├── EventsController.cs
+│   └── StaffController.cs
+├── appsettings.json
+└── Program.cs
+```
+
+---
+
+## ❓ Câu hỏi thường gặp
+
+**Q: Tôi gặp lỗi "Unable to resolve service for type ApplicationDbContext"?**
+A: Đảm bảo bạn đã thêm `builder.Services.AddDbContext<ApplicationDbContext>` trong Program.cs
+
+**Q: Connection string không kết nối được?**
+A: Kiểm tra lại Host, Password từ Supabase. Thử test connection bằng pgAdmin hoặc DBeaver
+
+**Q: Làm sao để test API khi chưa có login?**
+A: Tạm thời bỏ `[Authorize]` attribute trong controller để test, sau đó thêm lại
+
+---
+
+> [!IMPORTANT]
+> Nếu bạn gặp bất kỳ lỗi nào, hãy copy thông báo lỗi đầy đủ và cho tôi biết. Tôi sẽ giúp bạn giải quyết ngay!

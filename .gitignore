@@ -1,0 +1,28 @@
+# Common
+node_modules/
+bin/
+obj/
+.vs/
+.idea/
+dist/
+dist-ssr/
+*.local
+.env
+.env.*.local
+*.log
+logs/
+
+# Backend specific
+EventManager.API/appsettings.json
+EventManager.API/appsettings.Development.json
+*.user
+*.suo
+*.sln.docstates
+
+# Frontend specific
+event-manager-frontend/node_modules/
+event-manager-frontend/dist/
+
+# OS
+.DS_Store
+Thumbs.db

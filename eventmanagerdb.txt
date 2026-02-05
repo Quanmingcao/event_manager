@@ -1,0 +1,204 @@
+-- 1. Bảng Sự kiện (Events)
+CREATE TABLE events (
+    id uuid DEFAULT gen_random_uuid() PRIMARY KEY,
+    name text NOT NULL, -- Tên sự kiện [cite: 20]
+    organizer text, -- Đơn vị phối hợp [cite: 21]
+    start_date timestamp with time zone, -- Thời gian [cite: 22]
+    location text, -- Địa điểm [cite: 22]
+    format text CHECK (format IN ('offline', 'online', 'hybrid')), -- Hình thức [cite: 23]
+    
+    -- Hai trường quan trọng để link tài liệu bên ngoài:
+    script_link text,   -- Link Kịch bản chi tiết (Word - Lời dẫn MC...)
+    timeline_link text, -- Link Timeline chương trình (Excel/Ảnh - Giờ giấc) -> MỚI THÊM
+    
+    -- Các trường phục vụ báo cáo tổng kết:
+    status text DEFAULT 'Planning' CHECK (status IN ('Planning', 'Running', 'Completed', 'Canceled')), 
+    outcome_summary text, -- Đánh giá hiệu quả sơ bộ [cite: 38]
+    
+    created_at timestamp with time zone DEFAULT now()
+);
+
+-- 2. Bảng Nhân sự (Staff) - Danh bạ dùng chung, không cần login [cite: 25]
+CREATE TABLE staff (
+    id uuid DEFAULT gen_random_uuid() PRIMARY KEY,
+    full_name text NOT NULL,
+    staff_type text CHECK (staff_type IN ('Cán bộ', 'Sinh viên', 'Tình nguyện viên')),
+    phone text,
+    department text
+);
+
+-- 3. Bảng Danh mục Công việc mẫu (Task Templates) - Để chọn cho nhanh [cite: 31]
+CREATE TABLE task_templates (
+    id uuid DEFAULT gen_random_uuid() PRIMARY KEY,
+    task_name text NOT NULL, -- VD: "Check-in", "Livestream", "Hậu cần"
+    description text
+);
+
+-- 4. Bảng Phân công (Event Tasks) - Gán người vào việc [cite: 26, 30]
+CREATE TABLE event_tasks (
+    id uuid DEFAULT gen_random_uuid() PRIMARY KEY,
+    event_id uuid REFERENCES events(id) ON DELETE CASCADE,
+    task_id uuid REFERENCES task_templates(id),
+    staff_id uuid REFERENCES staff(id),
+    status text DEFAULT 'Pending', 
+    note text -- Ghi chú cụ thể (VD: "Đứng ở cửa sau hội trường")
+);
+
+-- 5. Bảng Dịch vụ (Services) - Giá niêm yết của Trung tâm
+CREATE TABLE services (
+    id uuid DEFAULT gen_random_uuid() PRIMARY KEY,
+    service_name text NOT NULL, 
+    base_price decimal DEFAULT 0
+);
+
+-- 6. Bảng Tài chính (Finances) - Tự động cộng tổng [cite: 32, 33, 34]
+CREATE TABLE event_finances (
+    id uuid DEFAULT gen_random_uuid() PRIMARY KEY,
+    event_id uuid REFERENCES events(id) ON DELETE CASCADE,
+    service_id uuid REFERENCES services(id), 
+    
+    estimated_amount decimal DEFAULT 0, -- Dự trù (thường lấy theo giá service)
+    estimated_note text,
+    
+    extra_amount decimal DEFAULT 0,     -- Phát sinh thực tế
+    extra_note text,
+    
+    -- Cột này tự động tính toán, không cần code Backend tính lại [cite: 35]
+    total_amount decimal GENERATED ALWAYS AS (estimated_amount + extra_amount) STORED 
+);
+
+
+-- 1. Tạo bucket mới tên là 'event_assets' (cần quyền admin để chạy dòng này)
+INSERT INTO storage.buckets (id, name, public) 
+VALUES ('event_assets', 'event_assets', true);
+
+-- 2. Policy: Cho phép BẤT KỲ AI cũng có thể XEM file (Public Read)
+-- Để bạn có thể copy link ảnh dán vào timeline hoặc kịch bản mà không bị lỗi 403
+CREATE POLICY "Public Access" 
+ON storage.objects FOR SELECT 
+USING ( bucket_id = 'event_assets' );
+
+-- 3. Policy: Chỉ người ĐÃ ĐĂNG NHẬP mới được UPLOAD file
+CREATE POLICY "Auth Users Upload" 
+ON storage.objects FOR INSERT 
+TO authenticated 
+WITH CHECK ( bucket_id = 'event_assets' );
+
+-- 4. Policy: Chỉ người ĐÃ ĐĂNG NHẬP mới được XÓA/SỬA file
+CREATE POLICY "Auth Users Update/Delete" 
+ON storage.objects FOR UPDATE 
+TO authenticated 
+USING ( bucket_id = 'event_assets' );
+CREATE POLICY "Auth Users Delete" 
+ON storage.objects FOR DELETE 
+TO authenticated 
+USING ( bucket_id = 'event_assets' );
+
+
+-- --- BẬT RLS CHO TỪNG BẢNG ---
+ALTER TABLE events ENABLE ROW LEVEL SECURITY;
+ALTER TABLE staff ENABLE ROW LEVEL SECURITY;
+ALTER TABLE task_templates ENABLE ROW LEVEL SECURITY;
+ALTER TABLE event_tasks ENABLE ROW LEVEL SECURITY;
+ALTER TABLE services ENABLE ROW LEVEL SECURITY;
+ALTER TABLE event_finances ENABLE ROW LEVEL SECURITY;
+
+-- --- TẠO POLICY "CHO PHÉP TẤT CẢ VỚI USER ĐÃ LOGIN" ---
+-- (Lặp lại cho từng bảng để đảm bảo an toàn chặt chẽ)
+
+-- 1. Bảng Events
+CREATE POLICY "Enable all for authenticated users" ON events
+FOR ALL TO authenticated USING (true) WITH CHECK (true);
+
+-- 2. Bảng Staff
+CREATE POLICY "Enable all for authenticated users" ON staff
+FOR ALL TO authenticated USING (true) WITH CHECK (true);
+
+-- 3. Bảng Task Templates
+CREATE POLICY "Enable all for authenticated users" ON task_templates
+FOR ALL TO authenticated USING (true) WITH CHECK (true);
+
+-- 4. Bảng Event Tasks
+CREATE POLICY "Enable all for authenticated users" ON event_tasks
+FOR ALL TO authenticated USING (true) WITH CHECK (true);
+
+-- 5. Bảng Services
+CREATE POLICY "Enable all for authenticated users" ON services
+FOR ALL TO authenticated USING (true) WITH CHECK (true);
+
+-- 6. Bảng Event Finances
+CREATE POLICY "Enable all for authenticated users" ON event_finances
+FOR ALL TO authenticated USING (true) WITH CHECK (true);
+
+
+-- 1. Tạo bảng Profiles (liên kết 1-1 với auth.users)
+CREATE TABLE profiles (
+  id uuid REFERENCES auth.users(id) ON DELETE CASCADE PRIMARY KEY,
+  email text,
+  full_name text,
+  role text DEFAULT 'staff' CHECK (role IN ('superadmin', 'staff')), -- Chỉ có 2 cấp
+  created_at timestamp with time zone DEFAULT now()
+);
+
+-- 2. Bật RLS cho bảng này
+ALTER TABLE profiles ENABLE ROW LEVEL SECURITY;
+
+-- 3. Tạo Function để tự động copy user từ auth.users sang profiles
+CREATE OR REPLACE FUNCTION public.handle_new_user()
+RETURNS trigger AS $$
+BEGIN
+  INSERT INTO public.profiles (id, email, full_name, role)
+  VALUES (
+    new.id, 
+    new.email, 
+    new.raw_user_meta_data->>'full_name', -- Lấy tên từ Google hoặc form đăng ký
+    'staff' -- Mặc định ai mới vào cũng là nhân viên
+  );
+  RETURN new;
+END;
+$$ LANGUAGE plpgsql SECURITY DEFINER;
+
+-- 4. Kích hoạt Trigger
+CREATE OR REPLACE TRIGGER on_auth_user_created
+  AFTER INSERT ON auth.users
+  FOR EACH ROW EXECUTE PROCEDURE public.handle_new_user();
+
+-- Policy: Ai đã đăng nhập cũng xem được danh sách profiles (để chọn người gán việc)
+CREATE POLICY "Everyone can read profiles" 
+  ON profiles FOR SELECT 
+  TO authenticated 
+  USING (true);
+
+-- Policy: Chỉ chính chủ HOẶC Superadmin mới được sửa thông tin (tên, avatar...)
+-- Lưu ý: Chúng ta sẽ chặn sửa cột 'role' ở tầng Frontend hoặc dùng Trigger nâng cao nếu cần kỹ hơn.
+CREATE POLICY "Users can update own profile" 
+  ON profiles FOR UPDATE
+  TO authenticated 
+  USING (auth.uid() = id);
+
+
+
+
+UPDATE profiles
+SET role = 'superadmin'
+WHERE email = 'email_cua_ban@gmail.com';
+
+-- Xóa policy cũ (nếu đã lỡ chạy lệnh cho phép tất cả ở bước trước)
+DROP POLICY "Enable all for authenticated users" ON events;
+
+-- Tạo lại Policy mới phân cấp:
+-- 1. Xem và Thêm: Ai cũng được
+CREATE POLICY "Staff can view and create" ON events
+FOR SELECT TO authenticated USING (true);
+
+CREATE POLICY "Staff can insert" ON events
+FOR INSERT TO authenticated WITH CHECK (true);
+
+-- 2. Sửa: Ai cũng được
+CREATE POLICY "Staff can update" ON events
+FOR UPDATE TO authenticated USING (true);
+
+-- 3. Xóa: CHỈ SUPERADMIN (Dùng hàm vừa tạo)
+CREATE POLICY "Only Admin can delete" ON events
+FOR DELETE TO authenticated 
+USING ( is_superadmin() );

@@ -1,0 +1,13 @@
+## Visual Studio
+.vs/
+bin/
+obj/
+*.user
+*.suo
+
+## Sensitive files
+appsettings.Development.json
+appsettings.json
+
+## Keep production template
+!appsettings.Production.json
